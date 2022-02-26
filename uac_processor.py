@@ -169,7 +169,7 @@ class UACClass:
         Gets system info
         """        
         column_names = ["Static hostname", "Icon name", "Chassis", "Machine ID", "Boot ID", "Operating System", "Kernel", "Architecture"]
-
+        df = pd.DataFrame()
         host_data = dict()
         host_data['uac_system'] = self.current_host
         
@@ -191,10 +191,10 @@ class UACClass:
                         df = pd.DataFrame.from_dict(host_data)
                         df.at[0, 'uac_system'] = self.current_host
                     else:
-                        df = pd.DataFrame()
+                        # df = pd.DataFrame()
                         df.at[0, 'uac_system'] = self.current_host
                         df.at[0, 'Static hostname'] = ''.join(file_data).strip()
-                        df.at[0, 'Icon name'] = ''
+                        df.at[0, 'Icon name'] = '' 
                         df.at[0, 'Chassis'] = ''
                         df.at[0, 'Machine ID'] = '' 
                         df.at[0, 'Boot ID'] = ''
@@ -358,24 +358,28 @@ class UACClass:
     def ingest_hash_executables(self):
         file = self.f.get_file(self.root_path, 'hash_executables.sha1')
         header = ['SHA1', 'FullPath']
-        if os.path.isfile(file):
-            sha1_df = pd.read_csv(file, 
-                                  delim_whitespace=True, 
-                                  names=header, 
-                                  index_col='FullPath')
-        else:
-            print('{} not found.'.format(file))
+        sha1_df = pd.DataFrame()
+        md5_df = pd.DataFrame()
+        if file:
+            if os.path.isfile(file):
+                sha1_df = pd.read_csv(file, 
+                                      delim_whitespace=True, 
+                                      names=header, 
+                                      index_col='FullPath')
+            else:
+                print('{} not found.'.format(file))
             
         file = self.f.get_file(self.root_path, 'hash_executables.md5')
-        header = ['MD5', 'FullPath']
-        if os.path.isfile(file):
-            md5_df = pd.read_csv(file, 
-                                 delim_whitespace=True, 
-                                 names=header,
-                                 index_col='FullPath')
-        
-        else:
-            print('{} not found.'.format(file))    
+        if file:
+            header = ['MD5', 'FullPath']
+            if os.path.isfile(file):
+                md5_df = pd.read_csv(file, 
+                                     delim_whitespace=True, 
+                                     names=header,
+                                     index_col='FullPath')
+
+            else:
+                print('{} not found.'.format(file))    
         
         self.hash_df = pd.concat([sha1_df, md5_df], axis=1)
         self.hash_df['uac-system'] = self.current_host
@@ -389,55 +393,55 @@ class UACClass:
         header = ['skip1','FullPath','inode','perm','UID','GID','size',
                   'atime','mtime','ctime','skip2']
         date_fields = ['atime','mtime','ctime']
-        
-        if os.path.isfile(file):
-            df = pd.read_csv(file, delimiter='|', 
-                             keep_default_na=False,
-                             names=header,
-                             usecols=header, 
-                             parse_dates=date_fields, 
-                             index_col=1)
-            df = df.drop(['skip1', 'skip2'], axis=1)
-            df['atime'] = pd.to_datetime(df['atime'], unit='s')
-            df['mtime'] = pd.to_datetime(df['mtime'], unit='s')
-            df['ctime'] = pd.to_datetime(df['ctime'], unit='s')
-        
-            self.fs_df = pd.merge(df, self.hash_df, how='left', left_on='FullPath', right_on='FullPath')                  
-            self.fs_df.to_sql('filesystem', con=self.conn, if_exists='append', index=False, method=None)
-            
-            header = ['FullPath','inode','perm','UID','GID','size','atime','mtime','ctime', 'SHA1', 'MD5']
-            self.fs_df = self.fs_df.reindex(columns=header)
-            
-            header = ['atime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']
-            atime_df = self.fs_df[header].copy()
-            atime_df.rename(columns={'atime':'TimeStamp'}, inplace=True)
-            atime_df['Type'] = 'atime'
-            
-            header = ['mtime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']                     
-            mtime_df = self.fs_df[header].copy()
-            mtime_df.rename(columns={'mtime':'TimeStamp'}, inplace=True)
-            mtime_df['Type'] = 'mtime'
-            
-            header = ['ctime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']    
-            ctime_df = self.fs_df[header].copy()
-            ctime_df.rename(columns={'ctime':'TimeStamp'}, inplace=True)
-            ctime_df['Type'] = 'ctime'
-            
-            df = pd.concat([atime_df, mtime_df, ctime_df]).sort_values(by=['TimeStamp','Type'])
-            
-            sql_stmt = 'CREATE TABLE IF NOT EXISTS "fs_timeline" ("TimeStamp" TEXT, "FullPath" TEXT,"Type" TEXT,"inode" TEXT,"perm" TEXT,"UID" TEXT,"GID" TEXT,"size" TEXT,"SHA1" TEXT,"MD5" TEXT)'
-            c = self.conn.cursor()
-            c.execute(sql_stmt)
-            self.conn.commit()
-            
-            header = ['TimeStamp','Type','inode','perm','UID','GID','size','SHA1', 'MD5']  
-            fs_timeline_df = df[header].copy().fillna('')
-            fs_timeline_df= fs_timeline_df.astype(str)
-            fs_timeline_df.to_sql('fs_timeline',con=self.conn,if_exists='append',index=True, index_label='FullPath')
-            
-            
-        else:
-            print('{} was not found'.format(file))
+        if file:
+            if os.path.isfile(file):
+                df = pd.read_csv(file, delimiter='|', 
+                                 keep_default_na=False,
+                                 names=header,
+                                 usecols=header, 
+                                 parse_dates=date_fields, 
+                                 index_col=1)
+                df = df.drop(['skip1', 'skip2'], axis=1)
+                df['atime'] = pd.to_datetime(df['atime'], unit='s')
+                df['mtime'] = pd.to_datetime(df['mtime'], unit='s')
+                df['ctime'] = pd.to_datetime(df['ctime'], unit='s')
+
+                self.fs_df = pd.merge(df, self.hash_df, how='left', left_on='FullPath', right_on='FullPath')                  
+                self.fs_df.to_sql('filesystem', con=self.conn, if_exists='append', index=False, method=None)
+
+                header = ['FullPath','inode','perm','UID','GID','size','atime','mtime','ctime', 'SHA1', 'MD5']
+                self.fs_df = self.fs_df.reindex(columns=header)
+
+                header = ['atime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']
+                atime_df = self.fs_df[header].copy()
+                atime_df.rename(columns={'atime':'TimeStamp'}, inplace=True)
+                atime_df['Type'] = 'atime'
+
+                header = ['mtime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']                     
+                mtime_df = self.fs_df[header].copy()
+                mtime_df.rename(columns={'mtime':'TimeStamp'}, inplace=True)
+                mtime_df['Type'] = 'mtime'
+
+                header = ['ctime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']    
+                ctime_df = self.fs_df[header].copy()
+                ctime_df.rename(columns={'ctime':'TimeStamp'}, inplace=True)
+                ctime_df['Type'] = 'ctime'
+
+                df = pd.concat([atime_df, mtime_df, ctime_df]).sort_values(by=['TimeStamp','Type'])
+
+                sql_stmt = 'CREATE TABLE IF NOT EXISTS "fs_timeline" ("TimeStamp" TEXT, "FullPath" TEXT,"Type" TEXT,"inode" TEXT,"perm" TEXT,"UID" TEXT,"GID" TEXT,"size" TEXT,"SHA1" TEXT,"MD5" TEXT)'
+                c = self.conn.cursor()
+                c.execute(sql_stmt)
+                self.conn.commit()
+
+                header = ['TimeStamp','Type','inode','perm','UID','GID','size','SHA1', 'MD5']  
+                fs_timeline_df = df[header].copy().fillna('')
+                fs_timeline_df= fs_timeline_df.astype(str)
+                fs_timeline_df.to_sql('fs_timeline',con=self.conn,if_exists='append',index=True, index_label='FullPath')
+
+
+            else:
+                print('{} was not found'.format(file))
             
 class FakeMatch(object):
     """A fake Match class that mimics the yara Match object.
@@ -486,13 +490,16 @@ class YaraClass(UACClass):
                     self.yara_df = pd.concat([self.yara_df, df], ignore_index=True)
                 
         
-        mapping = {self.yara_df.columns[0]:'Rule', self.yara_df.columns[1]: 'NameSpace', self.yara_df.columns[2]: 'FilePath'}
-        self.yara_df = self.yara_df.rename(columns=mapping)
+        #mapping = {self.yara_df.columns[0]:'Rule', self.yara_df.columns[1]: 'NameSpace', self.yara_df.columns[2]: 'FilePath'}
+        #self.yara_df = self.yara_df.rename(columns=mapping)
 
         return self.yara_df
     
     def add_yara_results_to_db(self):
-        self.yara_df.to_sql('yara_hits', self.conn, if_exists='append', index=False)
+        if not self.yara_df.empty:
+            self.yara_df.to_sql('yara_hits', self.conn, if_exists='append', index=False)
+        else:
+            print('No Yara hits to write to db')
     
     def compile_files(self, rule_path, externals=None):
         rule_files = os.listdir(rule_path)
@@ -636,13 +643,17 @@ class HashClass(UACClass):
         self.add_misp_hashes_to_db()
         
     def get_hashes_to_lookup(self):
-        sql_stmt = 'SELECT DISTINCT SHA1 from fs_timeline where SHA1 != "";' 
-        df = pd.read_sql_query(sql_stmt, self.conn)
-        self.list_of_hashes = df['SHA1'].to_list() 
+        # need to test and make sure the table exists
+        c = self.conn.cursor()
+        c.execute('SELECT count(name) FROM sqlite_master WHERE type="table" AND name="hash_executables";')
+        if c.fetchone()[0] == 1:
+            sql_stmt = 'SELECT DISTINCT MD5 from hash_executables where MD5 != "";' 
+            df = pd.read_sql_query(sql_stmt, self.conn)
+            self.list_of_hashes = df['MD5'].to_list() 
     
     def misp_hashlookups(self):
         lookups = hl.Hashlookup(r'https://hashlookup.circl.lu/') 
-        results = lookups.sha1_bulk_lookup(self.list_of_hashes) 
+        results = lookups.md5_bulk_lookup(self.list_of_hashes) 
         self.df= pd.json_normalize(results).fillna('') 
 
     def add_misp_hashes_to_db(self):
@@ -733,15 +744,15 @@ def main():
         y.add_yara_results_to_db()
         hash_lookups = HashClass(config_dict)
         print('Data written to {}'.format(system_db))
-        end_time = time.time()
-        st = datetime.datetime.fromtimestamp(script_start).isoformat(" ","seconds")
-        et = datetime.datetime.fromtimestamp(end_time).isoformat(" ","seconds")
-        print('Start Time: {}'.format(st))
-        print('End Time: {}'.format(et))
-        elapse_time = (end_time - script_start)/60
-        print('Elasped Time: {} minutes'.format('{0:,.2f}'.format(elapse_time)))
-        print('Finished')
-        
+    end_time = time.time()
+    st = datetime.datetime.fromtimestamp(script_start).isoformat(" ","seconds")
+    et = datetime.datetime.fromtimestamp(end_time).isoformat(" ","seconds")
+    print('Start Time: {}'.format(st))
+    print('End Time: {}'.format(et))
+    elapse_time = (end_time - script_start)/60
+    print('Elasped Time: {} minutes'.format('{0:,.2f}'.format(elapse_time)))
+    print('Finished')
+
 if __name__ == "__main__":
     
     os_type = platform.platform()
