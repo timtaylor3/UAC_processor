@@ -145,8 +145,8 @@ class UACClass:
         if tarfile.is_tarfile(self.current_system):
             with tarfile.open(self.current_system,'r') as tar:
                 try:
-                    3print()
-                    tar.extractall(data_path)
+                    print()
+                    #tar.extractall(data_path)
 
                 except tarfile.TarError:
                     print('Error Un-TAR-ing {}'.format(data_path))
@@ -175,34 +175,35 @@ class UACClass:
         host_data['uac_system'] = self.current_host
         
         path = os.sep.join([self.root_path, 'live_response', 'network'])
-        file = self.f.get_file(path, 'hostnamectl.txt')
-        if not file:
-            file = self.f.get_file(path, 'hostname.txt')
-            
+        if os.path.isdir(path):
+            file = self.f.get_file(path, 'hostnamectl.txt')
             if not file:
-                print('Hostname files not found')
-                            
-            
-        if file:    
-            with open(file) as fh:
-                file_data = fh.readlines()
-                if file.endswith('ctl.txt'):
-                    host_data = self.colon_to_dict(file_data)    
-                    df = pd.DataFrame.from_dict(host_data)
-                    df.at[0, 'uac_system'] = self.current_host
-                else:
-                    df = pd.DataFrame()
-                    df.at[0, 'uac_system'] = self.current_host
-                    df.at[0, 'Static hostname'] = ''.join(file_data).strip()
-                    df.at[0, 'Icon name'] = ''
-                    df.at[0, 'Chassis'] = ''
-                    df.at[0, 'Machine ID'] = '' 
-                    df.at[0, 'Boot ID'] = ''
-                    df.at[0, 'Operating System'] = '' 
-                    df.at[0, 'Kernel'] = ''
-                    df.at[0, 'Architecture'] = ''
-                         
-        return df
+                file = self.f.get_file(path, 'hostname.txt')
+
+                if not file:
+                    print('Hostname files not found')
+
+
+            if file:    
+                with open(file) as fh:
+                    file_data = fh.readlines()
+                    if file.endswith('ctl.txt'):
+                        host_data = self.colon_to_dict(file_data)    
+                        df = pd.DataFrame.from_dict(host_data)
+                        df.at[0, 'uac_system'] = self.current_host
+                    else:
+                        df = pd.DataFrame()
+                        df.at[0, 'uac_system'] = self.current_host
+                        df.at[0, 'Static hostname'] = ''.join(file_data).strip()
+                        df.at[0, 'Icon name'] = ''
+                        df.at[0, 'Chassis'] = ''
+                        df.at[0, 'Machine ID'] = '' 
+                        df.at[0, 'Boot ID'] = ''
+                        df.at[0, 'Operating System'] = '' 
+                        df.at[0, 'Kernel'] = ''
+                        df.at[0, 'Architecture'] = ''
+
+            return df
 
   
     def get_ipconfig(self):
@@ -213,28 +214,29 @@ class UACClass:
         """
         df = pd.DataFrame()
         path = os.sep.join([self.root_path, 'live_response', 'network'])
-        file = self.f.get_file(path, 'ip_addr_show.txt')
-        
-        if not file:
-            file = self.f.get_file(path, 'ifconfig_-a.txt')
-            
-        with open(file) as fh:
-            file_data = fh.readlines() 
+        if os.path.isdir(path):
+            file = self.f.get_file(path, 'ip_addr_show.txt')
 
-            pattern = re.compile(r"((([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])[ (\[]?(\.|dot)[ )\]]?){3}([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5]))")    
-            ip_dict = dict() 
-            dev_list = list()
-            ip_dict['uac_system'] = self.current_host 
-            for line in file_data: 
-                line = line.strip() 
-                if pattern.search(line):  
-                    d = line.split(' ')[-1].strip() 
-                    ip = line.split(' ')[1].split('/')[0].strip()  
-                    dev_list.append('{}: {}'.format(d, ip))
-                ip_data= ', '.join(dev_list)
-                ip_dict['IPAddress'] = [ip_data]   
-                    
-            df = pd.DataFrame.from_dict(ip_dict, orient='columns')
+            if not file:
+                file = self.f.get_file(path, 'ifconfig_-a.txt')
+
+            with open(file) as fh:
+                file_data = fh.readlines() 
+
+                pattern = re.compile(r"((([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])[ (\[]?(\.|dot)[ )\]]?){3}([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5]))")    
+                ip_dict = dict() 
+                dev_list = list()
+                ip_dict['uac_system'] = self.current_host 
+                for line in file_data: 
+                    line = line.strip() 
+                    if pattern.search(line):  
+                        d = line.split(' ')[-1].strip() 
+                        ip = line.split(' ')[1].split('/')[0].strip()  
+                        dev_list.append('{}: {}'.format(d, ip))
+                    ip_data= ', '.join(dev_list)
+                    ip_dict['IPAddress'] = [ip_data]   
+
+                df = pd.DataFrame.from_dict(ip_dict, orient='columns')
             
             return df
 
@@ -255,27 +257,27 @@ class UACClass:
     
     def get_passwd(self):
         passwd_df = pd.DataFrame()
-        df = pd.DataFrame()
         passwd_list = list()
         file = self.f.get_file(self.root_path, 'passwd')
-        if os.path.isfile(file):
-            with open(file) as fh:
-                file_data = fh.readlines() 
-                for line in file_data:
-                    line = line.strip()
-                    entry = line.split(':')
-                    df = pd.DataFrame()
-                    df.at[0, 'uac_system'] = self.current_host
-                    df.at[0, 'username'] = entry[0]
-                    df.at[0, 'passwd'] = entry[1]
-                    df.at[0, 'uid'] = entry[2]
-                    df.at[0, 'gid'] = entry[3]
-                    df.at[0, 'comment'] = entry[4]
-                    df.at[0, 'home_dir'] = entry[5]
-                    df.at[0, 'shell'] = entry[6].strip()
-   
-                    passwd_df = pd.concat([passwd_df, df], ignore_index=True)
-                
+        if file:
+        
+            if os.path.isfile(file):
+                with open(file) as fh:
+                    file_data = fh.readlines() 
+                    for line in file_data:
+                        line = line.strip()
+                        entry = line.split(':')
+                        df = pd.DataFrame()
+                        df.at[0, 'uac_system'] = self.current_host
+                        df.at[0, 'username'] = entry[0]
+                        df.at[0, 'passwd'] = entry[1]
+                        df.at[0, 'uid'] = entry[2]
+                        df.at[0, 'gid'] = entry[3]
+                        df.at[0, 'comment'] = entry[4]
+                        df.at[0, 'home_dir'] = entry[5]
+                        df.at[0, 'shell'] = entry[6].strip()
+
+                        passwd_df = pd.concat([passwd_df, df], ignore_index=True)
         passwd_df = passwd_df.applymap(str)
         passwd_df.to_sql('passwd', con=self.conn, if_exists='append', index=False, method=None)
                        
@@ -285,19 +287,20 @@ class UACClass:
         file = self.f.get_file(self.root_path, 'passwd')
         df = pd.DataFrame()
         group_df = pd.DataFrame()
-        if os.path.isfile(file):
-            with open(file) as fh:
-                file_data = fh.readlines() 
-                for line in file_data:
-                    line = line.strip()
-                    entry = line.split(':')
-                    df = pd.DataFrame()
-                    df.at[0, 'uac_system'] = self.current_host
-                    df.at[0, 'group_name'] = entry[0]
-                    df.at[0, 'passwd'] = entry[1]
-                    df.at[0, 'gid'] = entry[2]
-                    df.at[0, 'group_list'] = entry[3]
-                    group_df = pd.concat([group_df, df], ignore_index=True)
+        if file:
+            if os.path.isfile(file):
+                with open(file) as fh:
+                    file_data = fh.readlines() 
+                    for line in file_data:
+                        line = line.strip()
+                        entry = line.split(':')
+                        df = pd.DataFrame()
+                        df.at[0, 'uac_system'] = self.current_host
+                        df.at[0, 'group_name'] = entry[0]
+                        df.at[0, 'passwd'] = entry[1]
+                        df.at[0, 'gid'] = entry[2]
+                        df.at[0, 'group_list'] = entry[3]
+                        group_df = pd.concat([group_df, df], ignore_index=True)
                     
         group_df = group_df.applymap(str)
         group_df.to_sql('group', con=self.conn, if_exists='append', index=False, method=None)
@@ -308,11 +311,32 @@ class UACClass:
         ip_df = self.get_ipconfig()
         tz_df = self.get_timezone()
         system_details = pd.DataFrame()
+        sd_df = pd.DataFrame()
         
-        # sd_df = pd.concat([host_df, ip_df, tz_df], ignore_index=True)
+        # Need to make sure all data framea exists for the merge
+        if isinstance(host_df, type(None)):
+            host_df = pd.DataFrame()
+        
+        if isinstance(ip_df, type(None)):
+            ip_df = pd.DataFrame()
+            
+        if isinstance(tz_df, type(None)):
+            tz_df = pd.DataFrame()
+                     
+        # Begin merging the non-empyt dfs
+        if not host_df.empty: 
+            sd_df = host_df
 
-        df = pd.merge(host_df, ip_df, on="uac_system")
-        sd_df = pd.merge(df, tz_df, on="uac_system")
+        if (not ip_df.empty) and (not sd_df.empty):
+            sd_df = pd.merge(sd_df, ip_df, on="uac_system")
+            
+        else:
+            sd_df = ip_df
+
+        if (not tz_df.empty) and (not sd_df.empty):       
+            sd_df = pd.merge(sd_df, tz_df, on="uac_system")
+        else:
+            sd_df = tz_df
 
         header = list()
         columns = sd_df.columns.values.tolist()
