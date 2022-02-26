@@ -145,8 +145,8 @@ class UACClass:
         if tarfile.is_tarfile(self.current_system):
             with tarfile.open(self.current_system,'r') as tar:
                 try:
-                    print()
-                    #tar.extractall(data_path)
+                    3print()
+                    tar.extractall(data_path)
 
                 except tarfile.TarError:
                     print('Error Un-TAR-ing {}'.format(data_path))
