@@ -1,4 +1,6 @@
+import datetime
 import errno
+import glob
 import os
 import pandas as pd
 import platform
@@ -117,7 +119,11 @@ class FileClass:
         for file in os.listdir(root_path):
             if file.endswith(ext):
                 files_found.append(os.path.join(root_path, file))
-                
+      
+    def get_filepaths(self, root_path, file_regex):
+        return glob.glob(os.path.join(root_path, file_regex))
+    
+    
 class UACClass:
     def __init__(self, config_dict):
         self.config_dict = config_dict
@@ -125,7 +131,8 @@ class UACClass:
         self.current_outpath = self.config_dict['current_outpath']
         self.current_system = self.config_dict['current_system']
         self.current_host = self.config_dict['current_host']
-        
+        self.system_type = self.config_dict['current_type']
+
         self.f = FileClass()
         self.system_db = self.config_dict['system_db']
         self.conn = sqlite3.connect(self.system_db)
@@ -138,7 +145,8 @@ class UACClass:
         if tarfile.is_tarfile(self.current_system):
             with tarfile.open(self.current_system,'r') as tar:
                 try:
-                    tar.extractall(data_path)
+                    print()
+                    #tar.extractall(data_path)
 
                 except tarfile.TarError:
                     print('Error Un-TAR-ing {}'.format(data_path))
@@ -160,21 +168,40 @@ class UACClass:
     def get_hostnamectl(self):
         """ 
         Gets system info
-        """
-        file = self.f.get_file(self.root_path, 'hostnamectl.txt')
-        
-        if not os.path.isfile(file):
-            file = self.f.get_file(self.root_path, 'hostname.txt')   
+        """        
+        column_names = ["Static hostname", "Icon name", "Chassis", "Machine ID", "Boot ID", "Operating System", "Kernel", "Architecture"]
 
-        df = pd.DataFrame()
+        host_data = dict()
+        host_data['uac_system'] = self.current_host
+        
+        path = os.sep.join([self.root_path, 'live_response', 'network'])
+        file = self.f.get_file(path, 'hostnamectl.txt')
+        if not file:
+            file = self.f.get_file(path, 'hostname.txt')
+            
+            if not file:
+                print('Hostname files not found')
+                            
+            
         if file:    
             with open(file) as fh:
-                file_data = fh.readlines()  
-                host_data = self.colon_to_dict(file_data) 
-                host_data['uac_system'] = self.current_host 
-                
-                df = pd.DataFrame.from_dict(host_data)
-
+                file_data = fh.readlines()
+                if file.endswith('ctl.txt'):
+                    host_data = self.colon_to_dict(file_data)    
+                    df = pd.DataFrame.from_dict(host_data)
+                    df.at[0, 'uac_system'] = self.current_host
+                else:
+                    df = pd.DataFrame()
+                    df.at[0, 'uac_system'] = self.current_host
+                    df.at[0, 'Static hostname'] = ''.join(file_data).strip()
+                    df.at[0, 'Icon name'] = ''
+                    df.at[0, 'Chassis'] = ''
+                    df.at[0, 'Machine ID'] = '' 
+                    df.at[0, 'Boot ID'] = ''
+                    df.at[0, 'Operating System'] = '' 
+                    df.at[0, 'Kernel'] = ''
+                    df.at[0, 'Architecture'] = ''
+                         
         return df
 
   
@@ -185,9 +212,11 @@ class UACClass:
         Need to modify to get inet6 line
         """
         df = pd.DataFrame()
-        file = self.f.get_file(self.root_path, 'ip_addr_show.txt')
-        if not os.path.isfile(file):
-            file = self.f.get_file(self.root_path, 'ifconfig-a.txt')
+        path = os.sep.join([self.root_path, 'live_response', 'network'])
+        file = self.f.get_file(path, 'ip_addr_show.txt')
+        
+        if not file:
+            file = self.f.get_file(path, 'ifconfig_-a.txt')
             
         with open(file) as fh:
             file_data = fh.readlines() 
@@ -205,23 +234,23 @@ class UACClass:
                 ip_data= ', '.join(dev_list)
                 ip_dict['IPAddress'] = [ip_data]   
                     
-            df = pd.DataFrame.from_dict(ip_dict)
+            df = pd.DataFrame.from_dict(ip_dict, orient='columns')
+            
             return df
 
     def get_timezone(self):
         
         df = pd.DataFrame()
+        df.at[0, 'uac_system'] = self.current_host
     
-        tz_dict  = {'uac_system': self.current_host}
-        
         file = self.f.get_file(self.root_path, 'timezone')
-        if os.path.isfile(file):
-            with open(file) as fh:
-                file_data = fh.readlines() 
-                file_data = file_data[0].strip()
-                tz_dict = {'TimeZone': [file_data]}
-                tz_dict['uac_system'] = [self.current_host]
-        df = pd.DataFrame.from_dict(tz_dict)
+        if file:
+            if os.path.isfile(file):
+                with open(file) as fh:
+                    file_data = fh.readlines() 
+                    file_data = file_data[0].strip()
+                    df.at[0, 'TimeZone'] = file_data
+        
         return df
     
     def get_passwd(self):
@@ -235,18 +264,18 @@ class UACClass:
                 for line in file_data:
                     line = line.strip()
                     entry = line.split(':')
-                    entry_dict = dict()
-                    entry_dict['uac_system'] = self.current_host
-                    entry_dict['username'] = entry[0]
-                    entry_dict['passwd'] = entry[1]
-                    entry_dict['uid'] = entry[2]
-                    entry_dict['gid'] = entry[3]
-                    entry_dict['comment'] = entry[4]
-                    entry_dict['home_dir'] = entry[5]
-                    entry_dict['shell'] = entry[6].strip()
-                    
-                    passwd_df = passwd_df.append(entry_dict, ignore_index=True, sort=False)
-                    
+                    df = pd.DataFrame()
+                    df.at[0, 'uac_system'] = self.current_host
+                    df.at[0, 'username'] = entry[0]
+                    df.at[0, 'passwd'] = entry[1]
+                    df.at[0, 'uid'] = entry[2]
+                    df.at[0, 'gid'] = entry[3]
+                    df.at[0, 'comment'] = entry[4]
+                    df.at[0, 'home_dir'] = entry[5]
+                    df.at[0, 'shell'] = entry[6].strip()
+   
+                    passwd_df = pd.concat([passwd_df, df], ignore_index=True)
+                
         passwd_df = passwd_df.applymap(str)
         passwd_df.to_sql('passwd', con=self.conn, if_exists='append', index=False, method=None)
                        
@@ -261,16 +290,15 @@ class UACClass:
                 file_data = fh.readlines() 
                 for line in file_data:
                     line = line.strip()
-                    entry_dict = dict()
-                    entry_dict['uac_system'] = self.current_host
                     entry = line.split(':')
-                    entry_dict['group_name'] = entry[0]
-                    entry_dict['passwd'] = entry[1]
-                    entry_dict['gid'] = entry[2]
-                    entry_dict['group_list'] = entry[3]
-                    group_df = group_df.append(entry_dict, ignore_index=True, sort=False)
-                         
-            
+                    df = pd.DataFrame()
+                    df.at[0, 'uac_system'] = self.current_host
+                    df.at[0, 'group_name'] = entry[0]
+                    df.at[0, 'passwd'] = entry[1]
+                    df.at[0, 'gid'] = entry[2]
+                    df.at[0, 'group_list'] = entry[3]
+                    group_df = pd.concat([group_df, df], ignore_index=True)
+                    
         group_df = group_df.applymap(str)
         group_df.to_sql('group', con=self.conn, if_exists='append', index=False, method=None)
                           
@@ -281,16 +309,16 @@ class UACClass:
         tz_df = self.get_timezone()
         system_details = pd.DataFrame()
         
-        data_frames = [host_df, ip_df, tz_df]
-        
-        #sd_df = pd.join(data_frames, index=['uac-systems']).fillna('')
-        sd_df = pd.merge(host_df, ip_df, left_on='uac_system', right_on='uac_system')
-        sd_df = pd.merge(sd_df, tz_df, left_on='uac_system', right_on='uac_system')
+        # sd_df = pd.concat([host_df, ip_df, tz_df], ignore_index=True)
+
+        df = pd.merge(host_df, ip_df, on="uac_system")
+        sd_df = pd.merge(df, tz_df, on="uac_system")
 
         header = list()
         columns = sd_df.columns.values.tolist()
         values =['Static hostname','IPAddress','Operating System','Chassis', 'TimeZone','Architecture', 'uac_system']
         ip_address = list()
+        
         for item in columns:
             if item in values:
                 header.append(item)
@@ -424,8 +452,16 @@ class YaraClass(UACClass):
             column_names = ["Rule", "NameSpace", "FilePath"]
             
             if match.rule != None:
-                s = pd.Series([match.rule, match.namespace, filepath])
-                self.yara_df = self.yara_df.append(s,ignore_index=True).fillna('')
+                df = pd.DataFrame()
+                df.at[0, 'Rule'] = match.rule
+                df.at[0, 'NameSpace'] = match.namespace
+                df.at[0, 'FilePath'] = filepath
+                      
+                #df = pd.Series([match.rule, match.namespace, filepath])
+                #self.yara_df = self.yara_df.append(s,ignore_index=True).fillna('')
+                if not df.empty:
+                    self.yara_df = pd.concat([self.yara_df, df], ignore_index=True)
+                
         
         mapping = {self.yara_df.columns[0]:'Rule', self.yara_df.columns[1]: 'NameSpace', self.yara_df.columns[2]: 'FilePath'}
         self.yara_df = self.yara_df.rename(columns=mapping)
@@ -656,6 +692,7 @@ def main():
         config_dict = {'root_path': root_path,
                        'current_outpath': current_outpath,
                        'current_system': current_system,
+                       'current_type': current_system.split('-')[-2],
                         'system_db': system_db,
                         'current_host': current_host,
                         'yara_rules_path': yara_rules_path}
@@ -674,8 +711,10 @@ def main():
         hash_lookups = HashClass(config_dict)
         print('Data written to {}'.format(system_db))
         end_time = time.time()
-        print('Start Time: {}'.format(script_start))
-        print('End Time: {}'.format(end_time))
+        st = datetime.datetime.fromtimestamp(script_start).isoformat(" ","seconds")
+        et = datetime.datetime.fromtimestamp(end_time).isoformat(" ","seconds")
+        print('Start Time: {}'.format(st))
+        print('End Time: {}'.format(et))
         elapse_time = (end_time - script_start)/60
         print('Elasped Time: {} minutes'.format('{0:,.2f}'.format(elapse_time)))
         print('Finished')
