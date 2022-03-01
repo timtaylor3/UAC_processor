@@ -149,7 +149,7 @@ class UACClass:
 
                 except tarfile.TarError:
                     print('Error Un-TAR-ing {}'.format(data_path))
-                    
+        print('Decompression Completed')            
         self.root_path = data_path
         
                  
@@ -259,24 +259,25 @@ class UACClass:
         passwd_list = list()
         file = self.f.get_file(self.root_path, 'passwd')
         if file:
-        
+
             if os.path.isfile(file):
                 with open(file) as fh:
                     file_data = fh.readlines() 
                     for line in file_data:
-                        line = line.strip()
-                        entry = line.split(':')
-                        df = pd.DataFrame()
-                        df.at[0, 'uac_system'] = self.current_host
-                        df.at[0, 'username'] = entry[0]
-                        df.at[0, 'passwd'] = entry[1]
-                        df.at[0, 'uid'] = entry[2]
-                        df.at[0, 'gid'] = entry[3]
-                        df.at[0, 'comment'] = entry[4]
-                        df.at[0, 'home_dir'] = entry[5]
-                        df.at[0, 'shell'] = entry[6].strip()
+                        if not line.startswith('#'):
+                            line = line.strip()
+                            entry = line.split(':')
+                            df = pd.DataFrame()
+                            df.at[0, 'uac_system'] = self.current_host
+                            df.at[0, 'username'] = entry[0]
+                            df.at[0, 'passwd'] = entry[1]
+                            df.at[0, 'uid'] = entry[2]
+                            df.at[0, 'gid'] = entry[3]
+                            df.at[0, 'comment'] = entry[4]
+                            df.at[0, 'home_dir'] = entry[5]
+                            df.at[0, 'shell'] = entry[6].strip()
+                            passwd_df = pd.concat([passwd_df, df], ignore_index=True)
 
-                        passwd_df = pd.concat([passwd_df, df], ignore_index=True)
         passwd_df = passwd_df.applymap(str)
         passwd_df.to_sql('passwd', con=self.conn, if_exists='append', index=False, method=None)
                        
@@ -291,19 +292,20 @@ class UACClass:
                 with open(file) as fh:
                     file_data = fh.readlines() 
                     for line in file_data:
-                        line = line.strip()
-                        entry = line.split(':')
-                        df = pd.DataFrame()
-                        df.at[0, 'uac_system'] = self.current_host
-                        df.at[0, 'group_name'] = entry[0]
-                        df.at[0, 'passwd'] = entry[1]
-                        df.at[0, 'gid'] = entry[2]
-                        df.at[0, 'group_list'] = entry[3]
-                        group_df = pd.concat([group_df, df], ignore_index=True)
-                    
+                        if not line.startswith('#'):
+                            line = line.strip()
+                            entry = line.split(':')
+                            df = pd.DataFrame()
+                            df.at[0, 'uac_system'] = self.current_host
+                            df.at[0, 'group_name'] = entry[0]
+                            df.at[0, 'passwd'] = entry[1]
+                            df.at[0, 'gid'] = entry[2]
+                            df.at[0, 'group_list'] = entry[3]
+                            group_df = pd.concat([group_df, df], ignore_index=True)
+
         group_df = group_df.applymap(str)
         group_df.to_sql('group', con=self.conn, if_exists='append', index=False, method=None)
-                          
+
                         
     def system_documentation(self):
         host_df = self.get_hostnamectl()
@@ -356,42 +358,133 @@ class UACClass:
         system_details.to_sql('system_details', con=self.conn, if_exists='append', index=False, method=None)
         
     def ingest_hash_executables(self):
+        # Need to adjust how the data is read in. Spaces are a problem.
+        #  re.split(pattern, string, maxsplit=0, flags=0)
+        
+        # If BSD/Solaris, need to handle this format
+        # SHA1 (/bin/getfacl) = f36d7c67cd9c197ae694ef683a10dfedaf930567
+        # MD5 (/bin/getfacl) = caa782a83ca3381e6aff3c1076bdab25
+        
         file = self.f.get_file(self.root_path, 'hash_executables.sha1')
-        header = ['SHA1', 'FullPath']
+        
         sha1_df = pd.DataFrame()
         md5_df = pd.DataFrame()
         if file:
             if os.path.isfile(file):
-                sha1_df = pd.read_csv(file, 
-                                      delim_whitespace=True, 
-                                      names=header, 
-                                      index_col='FullPath')
-            else:
-                print('{} not found.'.format(file))
-            
-        file = self.f.get_file(self.root_path, 'hash_executables.md5')
-        if file:
-            header = ['MD5', 'FullPath']
-            if os.path.isfile(file):
-                md5_df = pd.read_csv(file, 
-                                     delim_whitespace=True, 
-                                     names=header,
-                                     index_col='FullPath')
+                if self.check_hash_file(file):
+                    print('Loading non-standard hash file {}'.format(file))
+                    sha1_df = self.load_non_standard_hash_file(file, 'SHA1')
+
+                else:
+                    #header = ['SHA1', 'FullPath']
+                    #sha1_df = pd.read_table(file, names=header).fillna('')
+                    sha1_df = self.load_standard_hash_file(file, 'SHA1')
+                    
 
             else:
-                print('{} not found.'.format(file))    
-        
-        self.hash_df = pd.concat([sha1_df, md5_df], axis=1)
-        self.hash_df['uac-system'] = self.current_host
-        self.hash_df = self.hash_df.applymap(str)
-        self.hash_df.to_sql('hash_executables', con=self.conn, if_exists='append', index=True, method=None)
+                print('{} not found.'.format(file))
+
+        file = self.f.get_file(self.root_path, 'hash_executables.md5')
+        if file:
             
+            if os.path.isfile(file):
+                if self.check_hash_file(file):
+                    print('Loading non-standard hash file {}'.format(file))
+                    md5_df = self.load_non_standard_hash_file(file, 'MD5')
+                    
+                else:
+                    #header = ['MD5', 'FullPath']
+                    #md5_df = pd.read_table(file, names=header).fillna('')
+                    md5_df = self.load_standard_hash_file(file, 'MD5')
+                   
+            else:
+                print('{} not found.'.format(file))
+        
+        print('Testing md5 and sha1 dataframes')
+        if not md5_df.empty and not sha1_df.empty:
+            print('Writing md5 dataframe to db')
+            md5_df.to_sql('hash_executables_md5', con=self.conn, if_exists='append', index=False, method=None)
+            print('Writing sha1 dataframe to db')
+            sha1_df.to_sql('hash_executables_sha1', con=self.conn, if_exists='append', index=False, method=None)
+            
+            print('Joining both data frames')
+            
+            self.hash_df = md5_df.join(sha1_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+            print('Joining Complete')
+            maxrows, maxcol = self.hash_df.shape
+            print('Rows Written: {}'.format(maxrows))
+            
+        if not md5_df.empty and sha1_df.empty:
+            print('Only md5 data')
+            self.hash_df = md5_df
+            self.hash_df['SHA1'] = ''
+            
+        if md5_df.empty and not sha1_df.empty:
+            print('Only md5 data')
+            self.hash_df = sha1_df
+            self.hash_df['MD5'] = ''
+        
+        print('There is hash executable data to write to the db')
+        if not self.hash_df.empty:
+            self.hash_df['uac-system'] = self.current_host
+            header = ['FullPath','MD5', 'SHA1']
+            print('Creating Copy of the dataframe')
+            df = self.hash_df[header].copy()
+            # df = self.hash_df.applymap(str) 
+            print('Writing Hash executables table')
+            df.to_sql('hash_executables', con=self.conn, if_exists='append', index=False, method=None)
+            print('Hash executable data was written to the db')
+
+
+    def check_hash_file(self, file):
+        result = False
+        with open(file) as f:
+            firstline = f.readline().rstrip()
+            if firstline.startswith('SHA1') or firstline.startswith('MD5') or firstline.startswith('sha1') or firstline.startswith('md5'):
+                result = True
+            
+        return result
+        
+    def load_standard_hash_file(self, file, hash_type):
+        r_df = pd.DataFrame()
+        with open(file) as fh:
+            file_data = fh.readlines() 
+            for line in file_data:
+                
+                if not line.startswith('#'):
+                    line = line.strip()
+                    entry = line.split(' ', 1)
+                    df = pd.DataFrame()
+                    df.at[0,  hash_type] = entry[1]
+                    df.at[0, 'FullPath'] = entry[0].strip('()')
+                    r_df = pd.concat([r_df, df], ignore_index=True)
+        
+        return r_df
+        
+
+    def load_non_standard_hash_file(self,file, hash_type):
+        r_df = pd.DataFrame()
+        with open(file) as fh:
+            file_data = fh.readlines() 
+            for line in file_data:
+                
+                if not line.startswith('#'):
+                    line = line.strip()
+                    entry = line.split(' ', 1)
+                
+                    entry = entry[1].split(' = ')
+                    df = pd.DataFrame()
+                    df.at[0,  hash_type] = entry[1]
+                    df.at[0, 'FullPath'] = entry[0].strip('()')
+                    r_df = pd.concat([r_df, df], ignore_index=True)
+        
+        return r_df
+    
        
     def ingest_bodyfile(self):
         
         file = self.f.get_file(self.root_path, 'bodyfile.txt')
-        header = ['skip1','FullPath','inode','perm','UID','GID','size',
-                  'atime','mtime','ctime','skip2']
+        header = ['skip1', 'FullPath','inode','perm','UID','GID','size', 'atime','mtime','ctime','skip2']
         date_fields = ['atime','mtime','ctime']
         if file:
             if os.path.isfile(file):
@@ -399,14 +492,18 @@ class UACClass:
                                  keep_default_na=False,
                                  names=header,
                                  usecols=header, 
-                                 parse_dates=date_fields, 
-                                 index_col=1)
-                df = df.drop(['skip1', 'skip2'], axis=1)
+                                 parse_dates=date_fields,
+                                 index_col=False)
+
+                df = df.drop(['skip1','skip2'], axis=1)
                 df['atime'] = pd.to_datetime(df['atime'], unit='s')
                 df['mtime'] = pd.to_datetime(df['mtime'], unit='s')
                 df['ctime'] = pd.to_datetime(df['ctime'], unit='s')
-
-                self.fs_df = pd.merge(df, self.hash_df, how='left', left_on='FullPath', right_on='FullPath')                  
+                self.fs_df = pd.concat([self.fs_df, df], ignore_index=True)
+                
+                if not self.hash_df.empty:
+                    self.fs_df = self.fs_df.join(self.hash_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+                    
                 self.fs_df.to_sql('filesystem', con=self.conn, if_exists='append', index=False, method=None)
 
                 header = ['FullPath','inode','perm','UID','GID','size','atime','mtime','ctime', 'SHA1', 'MD5']
@@ -433,8 +530,8 @@ class UACClass:
                 c = self.conn.cursor()
                 c.execute(sql_stmt)
                 self.conn.commit()
-
-                header = ['TimeStamp','Type','inode','perm','UID','GID','size','SHA1', 'MD5']  
+ 
+                header = ['TimeStamp','Type','inode','perm','UID','GID','size', 'SHA1', 'MD5']  
                 fs_timeline_df = df[header].copy().fillna('')
                 fs_timeline_df= fs_timeline_df.astype(str)
                 fs_timeline_df.to_sql('fs_timeline',con=self.conn,if_exists='append',index=True, index_label='FullPath')
@@ -537,18 +634,24 @@ class YaraClass(UACClass):
 
 
     def yara_matches(self, compiled_sigs, filepath, externals=None):
+        matches=False
         try:
             if externals:
                 matches = compiled_sigs.match(filepath, externals=externals)
             else:
                 matches = compiled_sigs.match(filepath)
+        
+        
         except yara.Error:
             print('Exception matching on file "{}"'.format(filepath), file=sys.stderr)
-            raise
+            pass
+        
         if not matches:
             yield FakeMatch(), filepath
-        for m in matches:
-            yield m, filepath
+            
+        else:    
+            for m in matches:
+                yield m, filepath
 
             
     def make_externals(self, filepath='', filename='', fileext='', dirname='', base_externals=None):
@@ -735,15 +838,22 @@ def main():
         
         uac_parser.decompress_collection_files()
         uac_parser.system_documentation()
+        print('System documentation complete')
         uac_parser.get_passwd()
         uac_parser.get_group()
+        print('Passwords and Group compete')
         uac_parser.ingest_hash_executables()
+        print('Hash Executables complete')
         uac_parser.ingest_bodyfile()
+        print('Body file Ingest complete')
         y = YaraClass(config_dict)
         results = y.yara_search_directory()
         y.add_yara_results_to_db()
+        print('Yara Search complete')
+        print('Looking up hashes')
         hash_lookups = HashClass(config_dict)
         print('Data written to {}'.format(system_db))
+        
     end_time = time.time()
     st = datetime.datetime.fromtimestamp(script_start).isoformat(" ","seconds")
     et = datetime.datetime.fromtimestamp(end_time).isoformat(" ","seconds")
