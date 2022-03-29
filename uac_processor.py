@@ -371,16 +371,8 @@ class UACClass:
         md5_df = pd.DataFrame()
         if file:
             if os.path.isfile(file):
-                if self.check_hash_file(file):
-                    print('Loading non-standard hash file {}'.format(file))
-                    sha1_df = self.load_non_standard_hash_file(file, 'SHA1')
-
-                else:
-                    #header = ['SHA1', 'FullPath']
-                    #sha1_df = pd.read_table(file, names=header).fillna('')
-                    sha1_df = self.load_standard_hash_file(file, 'SHA1')
+                sha1_df = self.load_hash_file(file, 'SHA1')
                     
-
             else:
                 print('{} not found.'.format(file))
 
@@ -388,15 +380,8 @@ class UACClass:
         if file:
             
             if os.path.isfile(file):
-                if self.check_hash_file(file):
-                    print('Loading non-standard hash file {}'.format(file))
-                    md5_df = self.load_non_standard_hash_file(file, 'MD5')
+                md5_df = self.load_hash_file(file, 'MD5')
                     
-                else:
-                    #header = ['MD5', 'FullPath']
-                    #md5_df = pd.read_table(file, names=header).fillna('')
-                    md5_df = self.load_standard_hash_file(file, 'MD5')
-                   
             else:
                 print('{} not found.'.format(file))
         
@@ -434,48 +419,30 @@ class UACClass:
             print('Writing Hash executables table')
             df.to_sql('hash_executables', con=self.conn, if_exists='append', index=False, method=None)
             print('Hash executable data was written to the db')
+ 
 
-
-    def check_hash_file(self, file):
-        result = False
-        with open(file) as f:
-            firstline = f.readline().rstrip()
-            if firstline.startswith('SHA1') or firstline.startswith('MD5') or firstline.startswith('sha1') or firstline.startswith('md5'):
-                result = True
+    def load_hash_file(self, file, hash_type):
+        # hash, FullPath
+        # Setup main dataframe
+        col_names = [hash_type, 'FullPath']
+        r_df = pd.DataFrame(columns=col_names)
+        
+        # Setup for regex'ing data from the lines
+        if hash_type.lower == 'SHA1':
+            pattern = '[0-9a-f]{5,40}'
+        else:
+            pattern = "[0-9a-fA-F]{32}"
             
-        return result
-        
-    def load_standard_hash_file(self, file, hash_type):
-        r_df = pd.DataFrame()
+        file_pattern = '(\/\w+)+'
+           
         with open(file) as fh:
             file_data = fh.readlines() 
             for line in file_data:
-                
                 if not line.startswith('#'):
                     line = line.strip()
-                    entry = line.split(' ', 1)
-                    df = pd.DataFrame()
-                    df.at[0,  hash_type] = entry[1]
-                    df.at[0, 'FullPath'] = entry[0].strip('()')
-                    r_df = pd.concat([r_df, df], ignore_index=True)
-        
-        return r_df
-        
-
-    def load_non_standard_hash_file(self,file, hash_type):
-        r_df = pd.DataFrame()
-        with open(file) as fh:
-            file_data = fh.readlines() 
-            for line in file_data:
-                
-                if not line.startswith('#'):
-                    line = line.strip()
-                    entry = line.split(' ', 1)
-                
-                    entry = entry[1].split(' = ')
-                    df = pd.DataFrame()
-                    df.at[0,  hash_type] = entry[1]
-                    df.at[0, 'FullPath'] = entry[0].strip('()')
+                    df = pd.DataFrame(columns=col_names)
+                    df.at[0,  hash_type] = re.findall(pattern, line)[0]
+                    df.at[0, 'FullPath'] = re.findall(file_pattern, line)[0]
                     r_df = pd.concat([r_df, df], ignore_index=True)
         
         return r_df
