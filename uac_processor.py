@@ -21,7 +21,10 @@ yara
 
 """
 TODO:
-- Add hashlookups to fs_timeline and filesystem
+- Fix sha1 for Big Sur
+- Fix sha1 for openwrt
+- Fix sha1 for Solaris 11
+- Pre-create tables and indexes
 - Output that makes sense
 - Replace prints with colored logs.
 - ????
@@ -357,18 +360,12 @@ class UACClass:
         system_details = system_details.applymap(str)
         system_details.to_sql('system_details', con=self.conn, if_exists='append', index=False, method=None)
         
-    def ingest_hash_executables(self):
-        # Need to adjust how the data is read in. Spaces are a problem.
-        #  re.split(pattern, string, maxsplit=0, flags=0)
-        
-        # If BSD/Solaris, need to handle this format
-        # SHA1 (/bin/getfacl) = f36d7c67cd9c197ae694ef683a10dfedaf930567
-        # MD5 (/bin/getfacl) = caa782a83ca3381e6aff3c1076bdab25
-        
-        file = self.f.get_file(self.root_path, 'hash_executables.sha1')
-        
+    def ingest_hash_executables(self):      
         sha1_df = pd.DataFrame()
         md5_df = pd.DataFrame()
+        
+        file = self.f.get_file(self.root_path, 'hash_executables.sha1')
+
         if file:
             if os.path.isfile(file):
                 sha1_df = self.load_hash_file(file, 'SHA1')
@@ -395,6 +392,7 @@ class UACClass:
             print('Joining both data frames')
             
             self.hash_df = md5_df.join(sha1_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+            
             print('Joining Complete')
             maxrows, maxcol = self.hash_df.shape
             print('Rows Written: {}'.format(maxrows))
@@ -411,8 +409,8 @@ class UACClass:
         
         print('There is hash executable data to write to the db')
         if not self.hash_df.empty:
-            self.hash_df['uac-system'] = self.current_host
-            header = ['FullPath','MD5', 'SHA1']
+            self.hash_df['uac_system'] = self.current_host
+            header = ['FullPath','MD5', 'SHA1', 'uac_system']
             print('Creating Copy of the dataframe')
             df = self.hash_df[header].copy()
             # df = self.hash_df.applymap(str) 
@@ -442,9 +440,24 @@ class UACClass:
                     line = line.strip()
                     df = pd.DataFrame(columns=col_names)
                     df.at[0,  hash_type] = re.findall(pattern, line)[0]
-                    df.at[0, 'FullPath'] = re.findall(file_pattern, line)[0]
+                    
+                    fullpath = ''
+                    replace_text_l = ''.join([hash_type.lower(), ' ('])
+                    replace_text_u = ''.join([hash_type.upper(), ' ('])
+                    
+                    if '=' in line:
+                        entry = line.split('=')
+                        
+                        fullpath = entry[0].replace(replace_text_l, '')
+                        fullpath = fullpath.replace(replace_text_u, '')
+                        fullpath = fullpath.replace(')','')
+                        
+                    else:
+                        fullpath = line.split(' ', 1)[1]
+                       
+                    df.at[0, 'FullPath'] = fullpath
                     r_df = pd.concat([r_df, df], ignore_index=True)
-        
+                    
         return r_df
     
        
@@ -466,42 +479,43 @@ class UACClass:
                 df['atime'] = pd.to_datetime(df['atime'], unit='s')
                 df['mtime'] = pd.to_datetime(df['mtime'], unit='s')
                 df['ctime'] = pd.to_datetime(df['ctime'], unit='s')
+                
                 self.fs_df = pd.concat([self.fs_df, df], ignore_index=True)
                 
                 if not self.hash_df.empty:
-                    self.fs_df = self.fs_df.join(self.hash_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+                    print('Joining bodyfile data with hash data')
                     
+                    self.fs_df = pd.concat([self.fs_df, self.hash_df], axis=1)
+                    self.fs_df = self.fs_df.loc[:,~self.fs_df.columns.duplicated()]        
+                
                 self.fs_df.to_sql('filesystem', con=self.conn, if_exists='append', index=False, method=None)
 
-                header = ['FullPath','inode','perm','UID','GID','size','atime','mtime','ctime', 'SHA1', 'MD5']
-                self.fs_df = self.fs_df.reindex(columns=header)
+                header = ['FullPath','inode','perm','UID','GID','size','atime','mtime','ctime', 'SHA1', 'MD5', 'uac_system']
+                df = self.fs_df[header].copy()
 
-                header = ['atime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']
-                atime_df = self.fs_df[header].copy()
+                header = ['atime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5','uac_system']
+                atime_df = df[header].copy()
                 atime_df.rename(columns={'atime':'TimeStamp'}, inplace=True)
                 atime_df['Type'] = 'atime'
 
-                header = ['mtime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']                     
-                mtime_df = self.fs_df[header].copy()
+                header = ['mtime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5','uac_system']                     
+                mtime_df = df[header].copy()
                 mtime_df.rename(columns={'mtime':'TimeStamp'}, inplace=True)
                 mtime_df['Type'] = 'mtime'
 
-                header = ['ctime','FullPath','inode','perm','UID','GID','size','SHA1', 'MD5']    
-                ctime_df = self.fs_df[header].copy()
+                header = ['ctime', 'FullPath','inode','perm','UID','GID','size','SHA1', 'MD5','uac_system']   
+                ctime_df = df[header].copy()
                 ctime_df.rename(columns={'ctime':'TimeStamp'}, inplace=True)
                 ctime_df['Type'] = 'ctime'
 
-                df = pd.concat([atime_df, mtime_df, ctime_df]).sort_values(by=['TimeStamp','Type'])
-
-                sql_stmt = 'CREATE TABLE IF NOT EXISTS "fs_timeline" ("TimeStamp" TEXT, "FullPath" TEXT,"Type" TEXT,"inode" TEXT,"perm" TEXT,"UID" TEXT,"GID" TEXT,"size" TEXT,"SHA1" TEXT,"MD5" TEXT)'
-                c = self.conn.cursor()
-                c.execute(sql_stmt)
-                self.conn.commit()
- 
-                header = ['TimeStamp','Type','inode','perm','UID','GID','size', 'SHA1', 'MD5']  
-                fs_timeline_df = df[header].copy().fillna('')
+                df = pd.concat([atime_df, mtime_df, ctime_df], axis=1)
+                df = df.loc[:,~df.columns.duplicated()]  
+                
+                header = ['TimeStamp', 'Type', 'FullPath', 'inode', 'perm', 'UID', 'GID', 'size', 'SHA1', 'MD5', 'uac_system']
+                fs_timeline_df = df[header].copy()
+                
                 fs_timeline_df= fs_timeline_df.astype(str)
-                fs_timeline_df.to_sql('fs_timeline',con=self.conn,if_exists='append',index=True, index_label='FullPath')
+                fs_timeline_df.to_sql('fs_timeline',con=self.conn,if_exists='append', index=False, method=None)
 
 
             else:
@@ -808,7 +822,7 @@ def main():
         print('System documentation complete')
         uac_parser.get_passwd()
         uac_parser.get_group()
-        print('Passwords and Group compete')
+        print('Passwords and Group complete')
         uac_parser.ingest_hash_executables()
         print('Hash Executables complete')
         uac_parser.ingest_bodyfile()
