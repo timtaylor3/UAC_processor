@@ -21,13 +21,10 @@ yara
 
 """
 TODO:
-- Fix sha1 for Big Sur
-- Fix sha1 for openwrt
-- Fix sha1 for Solaris 11
 - Pre-create tables and indexes
 - Output that makes sense
 - Replace prints with colored logs.
-- ????
+- Something with hash lookups to file system
 """
 __author__ = 'Tim Taylor'
 __version__ = 'Very ALPHA'
@@ -391,7 +388,10 @@ class UACClass:
             
             print('Joining both data frames')
             
-            self.hash_df = md5_df.join(sha1_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+            # self.hash_df = md5_df.join(sha1_df.set_index('FullPath'), on='FullPath', how='left').fillna('')
+            
+            self.hash_df = pd.concat([md5_df, sha1_df], axis=1)
+            self.hash_df = self.hash_df.loc[:,~self.hash_df.columns.duplicated()]   
             
             print('Joining Complete')
             maxrows, maxcol = self.hash_df.shape
